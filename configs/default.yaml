@@ -1,0 +1,52 @@
+# Default configuration for Model Forensics RCA system
+
+recorder:
+  enabled: true
+  granularity: "layer"  # layer, attention_head, neuron
+  compression_ratio: 0.1
+  external_calls: true
+  max_bundle_size_mb: 500
+  layers_to_record: null  # null means record all layers
+  sample_rate: 1.0
+
+modules:
+  cf:
+    enabled: true
+    anomaly_threshold: 2.0
+    baseline_samples: 1000
+    compression_methods: ["zlib", "arithmetic"]
+    entropy_window: 100
+  
+  cca:
+    enabled: true
+    max_fix_set_size: 50
+    search_strategy: "greedy"  # greedy, beam, random
+    side_effect_threshold: 0.05
+    early_stop_threshold: 0.8
+    intervention_types: ["zero", "mean", "patch"]
+  
+  isc:
+    enabled: false  # Disabled for MVP
+    max_interaction_order: 3
+    sampling_ratio: 0.1
+    significance_threshold: 0.05
+  
+  dbc:
+    enabled: false  # Disabled for MVP
+    perturbation_magnitude: 0.1
+    layer_granularity: 1
+    reversibility_threshold: 0.9
+  
+  provenance:
+    enabled: false  # Disabled for MVP
+    influence_samples: 1000
+    synthetic_probing: true
+    max_provenance_depth: 5
+
+# Global settings
+timeout_minutes: 120
+output_dir: "./results"
+bundle_dir: "./bundles"
+log_level: "INFO"
+random_seed: 42
+device: "auto"  # auto, cpu, cuda
