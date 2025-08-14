@@ -257,6 +257,19 @@ class CompressionForensics:
         
         return anomaly_score
     
+    def _validate_config(self) -> None:
+        """Validate CF configuration."""
+        if not hasattr(self.config, 'anomaly_threshold'):
+            raise ValueError("Config missing anomaly_threshold")
+        if not (0.0 <= self.config.anomaly_threshold <= 1.0):
+            raise ValueError("anomaly_threshold must be between 0.0 and 1.0")
+        if not hasattr(self.config, 'compression_methods'):
+            raise ValueError("Config missing compression_methods")
+        if not hasattr(self.config, 'baseline_samples'):
+            raise ValueError("Config missing baseline_samples")
+        if self.config.baseline_samples < 1:
+            raise ValueError("baseline_samples must be >= 1")
+    
     def get_stats(self) -> Dict[str, Any]:
         """Get compression forensics statistics."""
         return {

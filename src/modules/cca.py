@@ -24,45 +24,80 @@ class CausalCCA:
     """Finds minimal sets of interventions that correct model failures."""
     
     def __init__(self, config: Optional[CCAConfig] = None):
-        self.config = config or CCAConfig()
-        self.intervention_engine = InterventionEngine()
-        
-        # Search state
-        self.tested_combinations: Set[Tuple[str, ...]] = set()
-        self.successful_interventions: List[InterventionResult] = []
-        
-        logger.info(f"Initialized CCA with strategy: {self.config.search_strategy}")
+        try:
+            self.config = config or CCAConfig()
+            self.intervention_engine = InterventionEngine()
+            
+            # Validate configuration
+            self._validate_config()
+            
+            # Search state
+            self.tested_combinations: Set[Tuple[str, ...]] = set()
+            self.successful_interventions: List[InterventionResult] = []
+            
+            logger.info(f"Initialized CCA with strategy: {self.config.search_strategy}")
+        except Exception as e:
+            logger.error(f"Failed to initialize CCA: {e}")
+            raise
     
     def find_minimal_fix_sets(self, session: ReplaySession, 
                              priority_layers: Optional[List[str]] = None) -> List[FixSet]:
         """Find minimal sets of interventions that fix the failure."""
+        if not session:
+            raise ValueError("Session cannot be None")
+        if not hasattr(session, 'session_id'):
+            raise ValueError("Invalid session: missing session_id")
+        if not hasattr(session, 'reconstructed_activations') or not session.reconstructed_activations:
+            raise ValueError("Invalid session: missing or empty reconstructed_activations")
+            
         logger.info(f"Finding minimal fix sets for session: {session.session_id}")
         
-        if priority_layers is None:
-            priority_layers = list(session.reconstructed_activations.keys())
-        
-        # Reset search state
-        self.tested_combinations.clear()
-        self.successful_interventions.clear()
-        
-        # Test individual interventions first
-        individual_results = self._test_individual_interventions(session, priority_layers)
-        
-        # Find combinations based on strategy
-        if self.config.search_strategy == "greedy":
-            fix_sets = self._greedy_search(session, priority_layers, individual_results)
-        elif self.config.search_strategy == "beam":
-            fix_sets = self._beam_search(session, priority_layers, individual_results)
-        elif self.config.search_strategy == "random":
-            fix_sets = self._random_search(session, priority_layers, individual_results)
-        else:
-            raise ValueError(f"Unknown search strategy: {self.config.search_strategy}")
-        
-        # Sort by minimality and effectiveness
-        fix_sets = self._rank_fix_sets(fix_sets)
-        
-        logger.info(f"Found {len(fix_sets)} minimal fix sets")
-        return fix_sets
+        try:
+            if priority_layers is None:
+                priority_layers = list(session.reconstructed_activations.keys())
+            
+            if not priority_layers:
+                logger.warning("No priority layers available for analysis")
+                return []
+            
+            # Validate priority layers exist in session
+            invalid_layers = [layer for layer in priority_layers 
+                            if layer not in session.reconstructed_activations]
+            if invalid_layers:
+                logger.warning(f"Invalid layers removed from priority list: {invalid_layers}")
+                priority_layers = [layer for layer in priority_layers 
+                                 if layer in session.reconstructed_activations]
+            
+            if not priority_layers:
+                logger.warning("No valid priority layers remaining after validation")
+                return []
+            
+            # Reset search state
+            self.tested_combinations.clear()
+            self.successful_interventions.clear()
+            
+            # Test individual interventions first
+            individual_results = self._test_individual_interventions(session, priority_layers)
+            
+            # Find combinations based on strategy
+            if self.config.search_strategy == "greedy":
+                fix_sets = self._greedy_search(session, priority_layers, individual_results)
+            elif self.config.search_strategy == "beam":
+                fix_sets = self._beam_search(session, priority_layers, individual_results)
+            elif self.config.search_strategy == "random":
+                fix_sets = self._random_search(session, priority_layers, individual_results)
+            else:
+                raise ValueError(f"Unknown search strategy: {self.config.search_strategy}")
+            
+            # Sort by minimality and effectiveness
+            fix_sets = self._rank_fix_sets(fix_sets)
+            
+            logger.info(f"Found {len(fix_sets)} minimal fix sets")
+            return fix_sets
+            
+        except Exception as e:
+            logger.error(f"Error finding minimal fix sets: {e}")
+            raise
     
     def _test_individual_interventions(self, session: ReplaySession, 
                                      layers: List[str]) -> List[InterventionResult]:
@@ -237,18 +272,15 @@ class CausalCCA:
                                 intervention_type, layer_name, session.reconstructed_activations
                             )
                             
-                            combination = [base_result, InterventionResult(
-                                intervention=new_intervention,
-                                original_activation=session.reconstructed_activations[layer_name],
-                                modified_activation=session.reconstructed_activations[layer_name],  # Placeholder
-                                original_output=None,
-                                modified_output=None,
-                                flip_success=False,
-                                confidence=0.5,
-                                side_effects={},
-                                metadata={}
-                            )]
+                            # Actually apply the intervention
+                            new_result = self.intervention_engine.apply_intervention(
+                                session.model,
+                                session.reconstructed_activations,
+                                new_intervention,
+                                session.bundle.trace_data.inputs
+                            )
                             
+                            combination = [base_result, new_result]
                             flip_rate = self._evaluate_combination(session, combination)
                             if flip_rate > 0:
                                 new_beam.append((combination, flip_rate))
@@ -312,17 +344,12 @@ class CausalCCA:
                         intervention_type, layer_name, session.reconstructed_activations
                     )
                     
-                    # Create placeholder result for evaluation
-                    result = InterventionResult(
-                        intervention=intervention,
-                        original_activation=session.reconstructed_activations[layer_name],
-                        modified_activation=session.reconstructed_activations[layer_name],
-                        original_output=None,
-                        modified_output=None,
-                        flip_success=False,
-                        confidence=0.5,
-                        side_effects={},
-                        metadata={}
+                    # Actually apply the intervention
+                    result = self.intervention_engine.apply_intervention(
+                        session.model,
+                        session.reconstructed_activations,
+                        intervention,
+                        session.bundle.trace_data.inputs
                     )
                     combination.append(result)
                 
@@ -459,6 +486,19 @@ class CausalCCA:
             fix_set.minimality_rank = i + 1
         
         return ranked
+    
+    def _validate_config(self) -> None:
+        """Validate CCA configuration."""
+        if not hasattr(self.config, 'search_strategy'):
+            raise ValueError("Config missing search_strategy")
+        if self.config.search_strategy not in ["greedy", "beam", "random"]:
+            raise ValueError(f"Invalid search strategy: {self.config.search_strategy}")
+        if not hasattr(self.config, 'max_fix_set_size') or self.config.max_fix_set_size < 1:
+            raise ValueError("Invalid max_fix_set_size: must be >= 1")
+        if not hasattr(self.config, 'intervention_types') or not self.config.intervention_types:
+            raise ValueError("Config missing intervention_types")
+        if not hasattr(self.config, 'early_stop_threshold'):
+            raise ValueError("Config missing early_stop_threshold")
     
     def get_stats(self) -> Dict[str, Any]:
         """Get CCA statistics."""
