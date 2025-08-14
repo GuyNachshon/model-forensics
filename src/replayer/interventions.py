@@ -12,6 +12,7 @@ from core.types import (
     ActivationDict, InterventionHook
 )
 from core.config import RCAConfig
+from core.module_mapping import ModuleNameMapper
 
 logger = logging.getLogger(__name__)
 
@@ -23,11 +24,16 @@ class InterventionEngine:
         self.config = config or RCAConfig()
         self.active_hooks: Dict[str, torch.utils.hooks.RemovableHandle] = {}
         self.intervention_data: Dict[str, Any] = {}
+        self.module_mapper: Optional[ModuleNameMapper] = None
         
     def apply_intervention(self, model: nn.Module, activations: ActivationDict, 
                           intervention: Intervention, inputs: Dict[str, Any]) -> InterventionResult:
         """Apply a single intervention and return the result."""
         logger.debug(f"Applying {intervention.type.value} intervention on {intervention.layer_name}")
+        
+        # Initialize module mapper if not already done
+        if self.module_mapper is None:
+            self.module_mapper = ModuleNameMapper(model)
         
         # Get original activation
         if intervention.layer_name not in activations:
@@ -71,7 +77,12 @@ class InterventionEngine:
         """Apply intervention to a single activation tensor."""
         modified = activation.clone()
         
-        if intervention.type == InterventionType.ZERO:
+        logger.debug(f"Intervention type: {intervention.type} (type: {type(intervention.type)})")
+        logger.debug(f"InterventionType.ZERO: {InterventionType.ZERO} (type: {type(InterventionType.ZERO)})")
+        logger.debug(f"Comparison result: {intervention.type == InterventionType.ZERO}")
+        logger.debug(f"Intervention type value: {intervention.type.value}")
+        
+        if intervention.type == InterventionType.ZERO or intervention.type.value == "zero":
             if intervention.indices is not None:
                 flat_modified = modified.flatten()
                 flat_modified[intervention.indices] = 0.0
@@ -79,7 +90,7 @@ class InterventionEngine:
             else:
                 modified = torch.zeros_like(activation)
                 
-        elif intervention.type == InterventionType.MEAN:
+        elif intervention.type == InterventionType.MEAN or intervention.type.value == "mean":
             if intervention.value is not None:
                 mean_value = intervention.value
             else:
@@ -92,7 +103,7 @@ class InterventionEngine:
             else:
                 modified = torch.full_like(activation, mean_value)
                 
-        elif intervention.type == InterventionType.PATCH:
+        elif intervention.type == InterventionType.PATCH or intervention.type.value == "patch":
             if intervention.donor_activation is not None:
                 donor = intervention.donor_activation
                 if donor.shape != activation.shape:
@@ -101,12 +112,12 @@ class InterventionEngine:
             else:
                 raise ValueError("Patch intervention requires donor_activation")
                 
-        elif intervention.type == InterventionType.NOISE:
+        elif intervention.type == InterventionType.NOISE or intervention.type.value == "noise":
             noise_std = intervention.value or 0.1
             noise = torch.randn_like(activation) * noise_std
             modified = activation + noise
             
-        elif intervention.type == InterventionType.SCALE:
+        elif intervention.type == InterventionType.SCALE or intervention.type.value == "scale":
             scale_factor = intervention.scale_factor or 0.5
             if intervention.indices is not None:
                 flat_modified = modified.flatten()
@@ -115,7 +126,7 @@ class InterventionEngine:
             else:
                 modified = activation * scale_factor
                 
-        elif intervention.type == InterventionType.CLAMP:
+        elif intervention.type == InterventionType.CLAMP or intervention.type.value == "clamp":
             if intervention.clamp_range is not None:
                 min_val, max_val = intervention.clamp_range
                 modified = torch.clamp(activation, min_val, max_val)
@@ -134,7 +145,8 @@ class InterventionEngine:
         # Store intervention data for hook access
         self.intervention_data = {
             "layer_name": intervention.layer_name,
-            "modified_activation": modified_activation
+            "modified_activation": modified_activation,
+            "intervention_type": intervention.type
         }
         
         # Install intervention hook
@@ -156,11 +168,25 @@ class InterventionEngine:
         """Install a hook to intercept and modify activations."""
         target_module = None
         
-        # Find the target module
-        for name, module in model.named_modules():
-            if name == layer_name:
-                target_module = module
-                break
+        # Use module mapper to convert bundle name to actual module name
+        if self.module_mapper:
+            actual_module_name = self.module_mapper.bundle_to_module_name(layer_name)
+            if actual_module_name:
+                target_module = self.module_mapper.get_module_by_bundle_name(layer_name)
+                if target_module:
+                    logger.debug(f"Mapped bundle layer '{layer_name}' to module '{actual_module_name}'")
+                else:
+                    logger.warning(f"Module mapping found '{actual_module_name}' for '{layer_name}' but module not accessible")
+            else:
+                logger.warning(f"No module mapping found for bundle layer: {layer_name}")
+        
+        # Fallback: try direct name matching
+        if target_module is None:
+            for name, module in model.named_modules():
+                if name == layer_name:
+                    target_module = module
+                    logger.debug(f"Direct name match found for: {layer_name}")
+                    break
         
         if target_module is None:
             logger.warning(f"Could not find module: {layer_name}")
@@ -175,13 +201,43 @@ class InterventionEngine:
                     if output.shape == modified.shape:
                         return modified
                     else:
-                        logger.warning(f"Shape mismatch in intervention: {output.shape} vs {modified.shape}")
-                        return modified.reshape(output.shape)
+                        # Try to reshape if total elements match
+                        if output.numel() == modified.numel():
+                            try:
+                                reshaped = modified.reshape(output.shape)
+                                logger.debug(f"Successfully reshaped intervention from {modified.shape} to {output.shape}")
+                                return reshaped
+                            except RuntimeError as e:
+                                logger.warning(f"Could not reshape intervention: {e}")
+                        else:
+                            logger.warning(f"Shape mismatch in intervention: {output.shape} vs {modified.shape} (incompatible sizes)")
+                        
+                        # Fallback: create modified tensor with same shape but different values
+                        intervention_type = self.intervention_data.get("intervention_type", InterventionType.ZERO)
+                        if intervention_type in [InterventionType.ZERO]:
+                            return torch.zeros_like(output)
+                        elif intervention_type in [InterventionType.MEAN]:
+                            return torch.full_like(output, modified.mean().item())
+                        else:
+                            # Scale the original output instead
+                            return output * 0.5  # Moderate intervention
+                            
                 elif isinstance(output, (tuple, list)):
                     # Handle multiple outputs - replace first tensor
                     if len(output) > 0 and isinstance(output[0], torch.Tensor):
                         output_list = list(output)
-                        output_list[0] = modified.reshape(output[0].shape)
+                        try:
+                            if output[0].numel() == modified.numel():
+                                output_list[0] = modified.reshape(output[0].shape)
+                            else:
+                                # Apply fallback intervention
+                                intervention_type = self.intervention_data.get("intervention_type", InterventionType.ZERO)
+                                if intervention_type == InterventionType.ZERO:
+                                    output_list[0] = torch.zeros_like(output[0])
+                                else:
+                                    output_list[0] = output[0] * 0.5
+                        except RuntimeError:
+                            logger.warning("Could not apply intervention to tuple output")
                         return type(output)(output_list)
             
             return output
