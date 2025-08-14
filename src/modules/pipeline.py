@@ -14,6 +14,7 @@ from core.config import RCAConfig
 from replayer.core import Replayer
 from modules.cf import CompressionForensics
 from modules.cca import CausalCCA
+from modules.is_c import InteractionSpectroscopy
 
 
 logger = logging.getLogger(__name__)
@@ -28,9 +29,10 @@ class RCAPipeline:
         # Initialize modules based on config
         self.cf = CompressionForensics(self.config.modules.cf) if self.config.modules.cf.enabled else None
         self.cca = CausalCCA(self.config.modules.cca) if self.config.modules.cca.enabled else None
+        self.isc = InteractionSpectroscopy(self.config.modules.isc) if self.config.modules.isc.enabled else None
         self.replayer = Replayer(self.config)
         
-        logger.info(f"Initialized RCA Pipeline - CF: {'✓' if self.cf else '✗'}, CCA: {'✓' if self.cca else '✗'}")
+        logger.info(f"Initialized RCA Pipeline - CF: {'✓' if self.cf else '✗'}, CCA: {'✓' if self.cca else '✗'}, IS-C: {'✓' if self.isc else '✗'}")
     
     def analyze_incident(self, incident_bundle: IncidentBundle, 
                         model, baseline_bundles: Optional[List[IncidentBundle]] = None) -> CausalResult:
@@ -44,6 +46,7 @@ class RCAPipeline:
         # Phase 1: Compression Forensics (CF) - Anomaly Detection
         compression_metrics = []
         priority_layers = None
+        interaction_graph = None
         
         if self.cf:
             logger.info("Phase 1: Running Compression Forensics")
@@ -57,6 +60,29 @@ class RCAPipeline:
             priority_layers = self.cf.prioritize_layers(compression_metrics)
             
             logger.info(f"CF identified {len(priority_layers)} priority layers from {len(compression_metrics)} total")
+        
+        # Phase 1.5: Interaction Spectroscopy (IS-C) - Interaction Analysis
+        if self.isc:
+            logger.info("Phase 1.5: Running Interaction Spectroscopy")
+            
+            # Build baseline if provided and not already built
+            if baseline_bundles:
+                self.isc.build_baseline(baseline_bundles)
+            
+            # Analyze interaction patterns
+            interaction_graph = self.isc.analyze_interactions(incident_bundle)
+            
+            # Compare to baseline if available
+            if self.isc.baseline_interactions:
+                baseline_comparison = self.isc.compare_to_baseline(interaction_graph)
+                logger.info(f"IS-C found {baseline_comparison.get('num_anomalies', 0)} anomalous interactions")
+            
+            # Get critical pathways involving anomalous layers
+            if priority_layers:
+                critical_pathways = self.isc.get_critical_pathways(interaction_graph, priority_layers)
+                logger.info(f"IS-C identified {len(critical_pathways)} critical propagation pathways")
+            
+            logger.info(f"IS-C analyzed {len(interaction_graph.edges)} interactions across {len(interaction_graph.nodes)} layers")
         
         # Phase 2: Causal Minimal Fix Sets (CCA) - Intervention Search
         fix_sets = []
@@ -81,7 +107,7 @@ class RCAPipeline:
         result = CausalResult(
             fix_set=best_fix_set,
             compression_metrics=compression_metrics,
-            interaction_graph=None,  # Not implemented in MVP
+            interaction_graph=interaction_graph,  # Now implemented with IS-C
             decision_basin_map=None,  # Not implemented in MVP
             provenance_info=None,     # Not implemented in MVP
             execution_time=execution_time,
@@ -289,6 +315,7 @@ class RCAPipeline:
             "pipeline_config": {
                 "cf_enabled": self.cf is not None,
                 "cca_enabled": self.cca is not None,
+                "isc_enabled": self.isc is not None,
                 "timeout_minutes": self.config.timeout_minutes
             }
         }
@@ -298,5 +325,8 @@ class RCAPipeline:
         
         if self.cca:
             stats["cca_stats"] = self.cca.get_stats()
+        
+        if self.isc:
+            stats["isc_stats"] = self.isc.get_stats()
         
         return stats

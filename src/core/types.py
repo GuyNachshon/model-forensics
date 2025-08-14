@@ -123,11 +123,72 @@ class CompressionMetrics:
 
 
 @dataclass
+class InteractionMetrics:
+    """Metrics for interaction between two components."""
+    source_layer: str
+    target_layer: str
+    correlation: float
+    mutual_information: float
+    causal_strength: float
+    interaction_type: str  # "excitatory", "inhibitory", "neutral", "complex"
+    temporal_lag: int
+    confidence: float
+    
+    @property
+    def interaction_strength(self) -> float:
+        """Combined interaction strength score."""
+        import numpy as np
+        return np.sqrt(
+            self.correlation**2 * 0.3 + 
+            self.mutual_information * 0.4 + 
+            self.causal_strength * 0.3
+        )
+
+
+@dataclass
+class PropagationPath:
+    """A path through which anomalies propagate."""
+    layers: List[str]
+    propagation_strengths: List[float]
+    total_strength: float
+    path_length: int
+    critical_nodes: List[str]
+    
+    @property
+    def is_critical_path(self) -> bool:
+        """Whether this is a critical propagation path."""
+        return self.total_strength > 0.7 and len(self.critical_nodes) > 0
+
+
+@dataclass
+class InteractionGraph:
+    """Graph representation of component interactions."""
+    nodes: List[str]
+    edges: Dict[Tuple[str, str], InteractionMetrics]
+    propagation_paths: List[PropagationPath]
+    centrality_scores: Dict[str, float]
+    community_structure: Dict[str, List[str]]
+    
+    def get_critical_interactions(self, threshold: float = 0.7) -> List[InteractionMetrics]:
+        """Get interactions above strength threshold."""
+        return [metrics for metrics in self.edges.values() 
+                if metrics.interaction_strength >= threshold]
+    
+    def get_propagation_sources(self) -> List[str]:
+        """Get layers that are sources of propagation."""
+        sources = []
+        for path in self.propagation_paths:
+            if path.is_critical_path and path.layers:
+                sources.append(path.layers[0])
+        return list(set(sources))
+
+
+@dataclass
 class CausalResult:
     """Result of causal analysis."""
     fix_set: FixSet
     compression_metrics: List[CompressionMetrics]
-    interaction_graph: Optional[Dict[str, Any]]
+    interaction_graph: Optional[InteractionGraph]  # Now properly typed
     decision_basin_map: Optional[Dict[str, Any]]
     provenance_info: Optional[Dict[str, Any]]
     execution_time: float

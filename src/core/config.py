@@ -63,10 +63,15 @@ class CCAConfig:
 @dataclass
 class ISCConfig:
     """Configuration for Interaction Spectroscopy module."""
-    enabled: bool = False  # Disabled by default for MVP
-    max_interaction_order: int = 3
-    sampling_ratio: float = 0.1
-    significance_threshold: float = 0.05
+    enabled: bool = True  # Now enabled since we implemented it
+    analysis_method: str = "correlation"  # "correlation", "mutual_info", "causal"
+    min_interaction_strength: float = 0.3  # Minimum strength to consider
+    anomaly_threshold: float = 0.5  # Threshold for anomalous interactions
+    novel_interaction_threshold: float = 0.4  # Threshold for novel interactions
+    max_critical_paths: int = 10  # Max critical propagation paths to return
+    min_path_length: int = 2  # Minimum path length to consider
+    max_path_length: int = 8  # Maximum path length to explore
+    baseline_samples: int = 5  # Number of baseline bundles to use
 
 
 @dataclass
