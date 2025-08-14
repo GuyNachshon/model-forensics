@@ -77,10 +77,15 @@ class ISCConfig:
 @dataclass
 class DBCConfig:
     """Configuration for Decision Basin Cartography module."""
-    enabled: bool = False  # Disabled by default for MVP
-    perturbation_magnitude: float = 0.1
-    layer_granularity: int = 1
-    reversibility_threshold: float = 0.9
+    enabled: bool = True  # Now enabled with full implementation
+    perturbation_magnitude: float = 0.1  # Magnitude of perturbations for basin mapping
+    perturbation_steps: int = 20  # Number of perturbation steps
+    basin_resolution: int = 50  # Resolution for basin mapping
+    reversibility_threshold: float = 0.9  # Threshold for reversible perturbations
+    robustness_samples: int = 100  # Number of samples for robustness analysis
+    boundary_detection_method: str = "gradient"  # "gradient", "random", "adversarial"
+    max_boundary_distance: float = 1.0  # Maximum distance for boundary detection
+    confidence_threshold: float = 0.8  # Confidence threshold for decision boundaries
 
 
 @dataclass
@@ -182,15 +187,18 @@ class RCAConfig:
                 },
                 "isc": {
                     "enabled": self.modules.isc.enabled,
-                    "max_interaction_order": self.modules.isc.max_interaction_order,
-                    "sampling_ratio": self.modules.isc.sampling_ratio,
-                    "significance_threshold": self.modules.isc.significance_threshold,
+                    "analysis_method": self.modules.isc.analysis_method,
+                    "min_interaction_strength": self.modules.isc.min_interaction_strength,
+                    "anomaly_threshold": self.modules.isc.anomaly_threshold,
                 },
                 "dbc": {
                     "enabled": self.modules.dbc.enabled,
                     "perturbation_magnitude": self.modules.dbc.perturbation_magnitude,
-                    "layer_granularity": self.modules.dbc.layer_granularity,
+                    "perturbation_steps": self.modules.dbc.perturbation_steps,
+                    "basin_resolution": self.modules.dbc.basin_resolution,
                     "reversibility_threshold": self.modules.dbc.reversibility_threshold,
+                    "robustness_samples": self.modules.dbc.robustness_samples,
+                    "boundary_detection_method": self.modules.dbc.boundary_detection_method,
                 },
                 "provenance": {
                     "enabled": self.modules.provenance.enabled,

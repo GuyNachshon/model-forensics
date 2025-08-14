@@ -12,7 +12,10 @@ You DO NOT write mocks or stubs unless explicitly requested. You focus on writin
 
 ### Setup and Installation
 ```bash
-# Install in development mode with all dependencies
+# Install in development mode with all dependencies using uv (recommended)
+uv sync --all-extras
+
+# Alternative: Install using pip
 pip install -e ".[dev]"
 
 # Install pre-commit hooks (if they exist)
@@ -21,19 +24,22 @@ pre-commit install
 
 ### Testing
 ```bash
-# Run all tests with coverage
-pytest
+# Run all tests with coverage using uv
+uv run pytest
 
 # Run specific test file
-pytest tests/test_specific_module.py
+uv run pytest tests/unit/modules/test_cf_unit.py
 
 # Run tests with specific markers
-pytest -m "not slow"        # Skip slow tests
-pytest -m "integration"     # Run only integration tests
-pytest -m "gpu"            # Run only GPU tests
+uv run pytest -m "not slow"        # Skip slow tests
+uv run pytest -m "integration"     # Run only integration tests
+uv run pytest -m "gpu"            # Run only GPU tests
 
 # Run single test function
-pytest tests/test_file.py::test_function_name -v
+uv run pytest tests/unit/modules/test_cf_unit.py::TestCompressionForensics::test_cf_initialization -v
+
+# Run test runner script
+uv run python run_tests.py
 ```
 
 ### Code Quality

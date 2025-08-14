@@ -15,6 +15,7 @@ from replayer.core import Replayer
 from modules.cf import CompressionForensics
 from modules.cca import CausalCCA
 from modules.is_c import InteractionSpectroscopy
+from modules.dbc import DecisionBasinCartography
 
 
 logger = logging.getLogger(__name__)
@@ -30,9 +31,10 @@ class RCAPipeline:
         self.cf = CompressionForensics(self.config.modules.cf) if self.config.modules.cf.enabled else None
         self.cca = CausalCCA(self.config.modules.cca) if self.config.modules.cca.enabled else None
         self.isc = InteractionSpectroscopy(self.config.modules.isc) if self.config.modules.isc.enabled else None
+        self.dbc = DecisionBasinCartography(self.config.modules.dbc) if self.config.modules.dbc.enabled else None
         self.replayer = Replayer(self.config)
         
-        logger.info(f"Initialized RCA Pipeline - CF: {'✓' if self.cf else '✗'}, CCA: {'✓' if self.cca else '✗'}, IS-C: {'✓' if self.isc else '✗'}")
+        logger.info(f"Initialized RCA Pipeline - CF: {'✓' if self.cf else '✗'}, CCA: {'✓' if self.cca else '✗'}, IS-C: {'✓' if self.isc else '✗'}, DBC: {'✓' if self.dbc else '✗'}")
     
     def analyze_incident(self, incident_bundle: IncidentBundle, 
                         model, baseline_bundles: Optional[List[IncidentBundle]] = None) -> CausalResult:
@@ -47,6 +49,7 @@ class RCAPipeline:
         compression_metrics = []
         priority_layers = None
         interaction_graph = None
+        decision_basin_map = None
         
         if self.cf:
             logger.info("Phase 1: Running Compression Forensics")
@@ -84,14 +87,59 @@ class RCAPipeline:
             
             logger.info(f"IS-C analyzed {len(interaction_graph.edges)} interactions across {len(interaction_graph.nodes)} layers")
         
-        # Phase 2: Causal Minimal Fix Sets (CCA) - Intervention Search
+        # Phase 2: Decision Basin Cartography (DBC) - Robustness Analysis
+        if self.dbc:
+            logger.info("Phase 2: Running Decision Basin Cartography")
+            
+            # Build baseline if provided and not already built
+            if baseline_bundles:
+                # Convert bundles to sessions for DBC baseline building
+                baseline_sessions = []
+                for baseline_bundle in baseline_bundles[:5]:  # Limit for performance
+                    try:
+                        baseline_session = self.replayer.create_session(baseline_bundle, model)
+                        baseline_sessions.append(baseline_session)
+                    except Exception as e:
+                        logger.warning(f"Failed to create baseline session: {e}")
+                        continue
+                
+                if baseline_sessions:
+                    self.dbc.build_baseline(baseline_sessions)
+            
+            # Map decision basin around failure point
+            try:
+                failure_activations = session.reconstructed_activations
+                # Focus on priority layers if available
+                target_layers = priority_layers if priority_layers else None
+                decision_basin_map = self.dbc.map_decision_basin(session, failure_activations, target_layers)
+                
+                # Compare to baseline if available
+                if self.dbc.baseline_robustness:
+                    baseline_comparison = self.dbc.compare_to_baseline(decision_basin_map)
+                    logger.info(f"DBC found {baseline_comparison.get('num_new_critical_layers', 0)} new critical layers")
+                
+                logger.info(f"DBC mapped {len(decision_basin_map.decision_boundaries)} boundaries, "
+                           f"{len(decision_basin_map.critical_layers)} critical layers")
+                
+            except Exception as e:
+                logger.warning(f"DBC analysis failed: {e}")
+                decision_basin_map = None
+        
+        # Phase 3: Causal Minimal Fix Sets (CCA) - Intervention Search
         fix_sets = []
         
         if self.cca:
-            logger.info("Phase 2: Running Causal CCA")
+            logger.info("Phase 3: Running Causal CCA")
             
-            # Focus search on CF-flagged layers if available
+            # Focus search on CF-flagged layers and DBC critical layers
             search_layers = priority_layers if priority_layers else None
+            if decision_basin_map and decision_basin_map.critical_layers:
+                # Combine CF priority layers with DBC critical layers
+                combined_layers = set(search_layers or [])
+                combined_layers.update(decision_basin_map.critical_layers)
+                search_layers = list(combined_layers) if combined_layers else None
+                logger.info(f"CCA targeting {len(search_layers) if search_layers else 0} layers from CF+DBC analysis")
+            
             fix_sets = self.cca.find_minimal_fix_sets(session, search_layers)
             
             logger.info(f"CCA found {len(fix_sets)} minimal fix sets")
@@ -107,8 +155,8 @@ class RCAPipeline:
         result = CausalResult(
             fix_set=best_fix_set,
             compression_metrics=compression_metrics,
-            interaction_graph=interaction_graph,  # Now implemented with IS-C
-            decision_basin_map=None,  # Not implemented in MVP
+            interaction_graph=interaction_graph,  # Implemented with IS-C
+            decision_basin_map=decision_basin_map,  # Now implemented with DBC
             provenance_info=None,     # Not implemented in MVP
             execution_time=execution_time,
             confidence=confidence
@@ -316,6 +364,7 @@ class RCAPipeline:
                 "cf_enabled": self.cf is not None,
                 "cca_enabled": self.cca is not None,
                 "isc_enabled": self.isc is not None,
+                "dbc_enabled": self.dbc is not None,
                 "timeout_minutes": self.config.timeout_minutes
             }
         }
@@ -328,5 +377,8 @@ class RCAPipeline:
         
         if self.isc:
             stats["isc_stats"] = self.isc.get_stats()
+        
+        if self.dbc:
+            stats["dbc_stats"] = self.dbc.get_stats()
         
         return stats

@@ -184,12 +184,48 @@ class InteractionGraph:
 
 
 @dataclass
+class DecisionBoundary:
+    """A decision boundary in the activation space."""
+    layer_name: str
+    boundary_points: List[np.ndarray]  # Points on the boundary
+    normal_vector: np.ndarray  # Normal vector to the boundary
+    distance_from_failure: float  # Distance from failure point
+    confidence: float  # Confidence in boundary location
+    boundary_type: str  # "linear", "nonlinear", "uncertain"
+
+
+@dataclass
+class RobustnessMetrics:
+    """Robustness analysis metrics."""
+    layer_name: str
+    perturbation_tolerance: float  # Max perturbation before flip
+    gradient_magnitude: float  # Gradient magnitude at failure point
+    lipschitz_constant: float  # Local Lipschitz constant
+    basin_volume: float  # Volume of decision basin
+    boundary_distance: float  # Distance to nearest boundary
+    confidence: float
+
+
+@dataclass
+class DecisionBasinMap:
+    """Complete map of decision landscape around failure."""
+    failure_point: Dict[str, np.ndarray]  # Original failure activations
+    decision_boundaries: List[DecisionBoundary]  # Detected boundaries
+    robustness_metrics: List[RobustnessMetrics]  # Per-layer robustness
+    perturbation_samples: Dict[str, List[np.ndarray]]  # Sampled perturbations
+    basin_volume_estimate: float  # Total basin volume estimate
+    critical_layers: List[str]  # Layers with weak robustness
+    reversible_region_size: float  # Size of reversible perturbation region
+    analysis_metadata: Dict[str, Any]  # Analysis configuration and stats
+
+
+@dataclass
 class CausalResult:
     """Result of causal analysis."""
     fix_set: FixSet
     compression_metrics: List[CompressionMetrics]
     interaction_graph: Optional[InteractionGraph]  # Now properly typed
-    decision_basin_map: Optional[Dict[str, Any]]
+    decision_basin_map: Optional[DecisionBasinMap]  # Now properly typed
     provenance_info: Optional[Dict[str, Any]]
     execution_time: float
     confidence: float
