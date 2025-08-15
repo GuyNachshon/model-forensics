@@ -13,6 +13,10 @@ from dataclasses import dataclass
 from enum import Enum
 import json
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Optional local model support
 try:
@@ -216,6 +220,10 @@ class ModelClient:
             load_id = model_id
 
         tok = AutoTokenizer.from_pretrained(load_id, use_fast=True)
+        # Set pad token if not set (important for batching and generation)
+        if tok.pad_token is None:
+            tok.pad_token = tok.eos_token
+            
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
         mdl = AutoModelForCausalLM.from_pretrained(load_id, torch_dtype=dtype)
@@ -394,31 +402,83 @@ class ModelClient:
             user_text = "\n".join([m.content for m in messages if m.role != MessageRole.SYSTEM])
             text = (system_text + "\n\n" + user_text).strip()
 
-        inputs = tok(text, return_tensors="pt")
+        # Get model's maximum sequence length
+        max_length = getattr(mdl.config, 'max_position_embeddings', 1024)
+        # Reserve some tokens for generation
+        max_input_length = max_length - max(1, min(int(max_tokens), 512))
+        
+        inputs = tok(text, return_tensors="pt", truncation=True, max_length=max_input_length)
         # Move tensors to model device
         device = next(mdl.parameters()).device
         inputs = {k: v.to(device) for k, v in inputs.items()}
 
         # Cap generation sensibly for local usage
         gen_kwargs = {
-            "max_new_tokens": max(1, min(int(max_tokens), 2048)),
-            "temperature": float(temperature),
+            "max_new_tokens": max(1, min(int(max_tokens), 512)),  # Reduced for stability
+            "temperature": float(temperature) if temperature > 0 else 0.1,  # Avoid 0 temperature
             "do_sample": temperature > 0,
+            "pad_token_id": tok.eos_token_id,
+            "eos_token_id": tok.eos_token_id,
+            "use_cache": True,
         }
         gen_kwargs.update({k: v for k, v in kwargs.items() if k not in ("timeout",)})
 
         api_start = time.time()
-        with torch.no_grad():
-            outputs = mdl.generate(**inputs, **gen_kwargs)
+        try:
+            with torch.no_grad():
+                outputs = mdl.generate(**inputs, **gen_kwargs)
+        except RuntimeError as e:
+            # Handle CUDA errors by falling back to a simpler approach
+            if "CUDA error" in str(e) or "index out of bounds" in str(e):
+                logger.warning(f"CUDA error during generation, attempting recovery: {e}")
+                # Clear CUDA cache and try with reduced parameters
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                # Fallback to minimal generation
+                simple_gen_kwargs = {
+                    "max_new_tokens": min(50, max_tokens),
+                    "do_sample": False,
+                    "pad_token_id": tok.eos_token_id,
+                    "eos_token_id": tok.eos_token_id,
+                }
+                with torch.no_grad():
+                    outputs = mdl.generate(**inputs, **simple_gen_kwargs)
+                # Decode the fallback result
+                try:
+                    input_len = inputs["input_ids"].shape[1]
+                    if outputs.shape[1] > input_len:
+                        generated = outputs[0][input_len:]
+                        completion = tok.decode(generated, skip_special_tokens=True)
+                    else:
+                        completion = ""
+                    return LLMResponse(model_id=model_id, completion=completion, api_duration=time.time() - api_start)
+                except Exception as e3:
+                    logger.error(f"Fallback decoding failed: {e3}")
+                    return LLMResponse(model_id=model_id, completion="[FALLBACK_DECODING_ERROR]", api_duration=time.time() - api_start)
+            else:
+                raise
         api_duration = time.time() - api_start
 
         # Decode only the newly generated portion if possible
         try:
             input_len = inputs["input_ids"].shape[1]
-            generated = outputs[0][input_len:]
-            completion = tok.decode(generated, skip_special_tokens=True)
-        except Exception:
-            completion = tok.decode(outputs[0], skip_special_tokens=True)
+            if outputs.shape[1] > input_len:
+                generated = outputs[0][input_len:]
+                completion = tok.decode(generated, skip_special_tokens=True)
+            else:
+                # If no new tokens were generated, return empty string
+                completion = ""
+        except Exception as e:
+            logger.warning(f"Error decoding generated tokens: {e}, using full output fallback")
+            try:
+                completion = tok.decode(outputs[0], skip_special_tokens=True)
+                # Try to extract only the new part by removing the input text
+                input_text = tok.decode(inputs["input_ids"][0], skip_special_tokens=True)
+                if completion.startswith(input_text):
+                    completion = completion[len(input_text):].strip()
+            except Exception as e2:
+                logger.error(f"Complete decoding failure: {e2}")
+                completion = "[DECODING_ERROR]"
 
         return LLMResponse(model_id=model_id, completion=completion, api_duration=api_duration)
 

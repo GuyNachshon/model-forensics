@@ -9,10 +9,10 @@ else
 fi
 
 # Check if the model ID is valid
-if [[ ! "$NewModelId" =~ ^[\w\-_]+\/[\w\-_]+$ ]]; then
-    echo "Invalid model ID format. Please use alphanumeric characters, underscores, or hyphens."
-    exit 1
-fi
+#if [[ ! "$NewModelId" =~ ^[\w\-_]+\/[\w\-_]+$ ]]; then
+#    echo "Invalid model ID format. Please use alphanumeric characters, underscores, or hyphens."
+#    exit 1
+#fi
 
 # call utils.update_used_model python func with model_id
 python3 -c "

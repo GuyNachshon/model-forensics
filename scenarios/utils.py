@@ -114,27 +114,30 @@ def get_max_tokens(model_name):
 
 
 def load_hf_model(model_id):
-    hf_url = f"https://huggingface.co/api/{model_id}"
+    hf_url = f"https://huggingface.co/api/models/{model_id}"
     response = requests.get(hf_url)
     response.raise_for_status()
     model_info = response.json()
     transformers_info = model_info.get("transformersInfo", {})
     storage_used = model_info.get("usedStorage", 0)
 
-    # if storage size is above 50GB, ask user to confirm
+    # if storage size is above 50GB, warn but continue automatically
     if storage_used > 50 * 1024 * 1024 * 1024:
-        confirm = input(f"Model {model_id} is large ({storage_used / (1024 * 1024 * 1024):.2f} GB). Do you want to continue? (y/n): ")
-        if confirm.lower() != 'y':
-            raise ValueError("User cancelled loading the model.")
+        print(f"Warning: Model {model_id} is large ({storage_used / (1024 * 1024 * 1024):.2f} GB). Continuing automatically...")
+        # Continue automatically in non-interactive mode
 
-    model_module = transformers_info.get("auto_model")
-    tokenizer_module = transformers_info.get("processor")
-
-    _model = importlib.import_module("transformers", model_module)
-    _tokenizer = importlib.import_module("transformers", tokenizer_module)
-
-    model = _model.from_pretrained(model_id)
-    tokenizer = _tokenizer.from_pretrained(model_id)
+    # Import transformers components properly
+    import transformers
+    
+    model_module = transformers_info.get("auto_model", "AutoModel")
+    tokenizer_module = transformers_info.get("processor", "AutoTokenizer")
+    
+    # Get the actual classes from transformers
+    model_class = getattr(transformers, model_module)
+    tokenizer_class = getattr(transformers, tokenizer_module)
+    
+    model = model_class.from_pretrained(model_id)
+    tokenizer = tokenizer_class.from_pretrained(model_id)
 
     return model, tokenizer
 
@@ -145,7 +148,7 @@ def update_used_model(model_id):
         with open(file, 'r') as f:
             content = yaml.safe_load(f.read())
 
-        content["gloal"]["models"] = [model_id]
+        content["global"]["models"] = [model_id]
 
         with open(file, 'w') as f:
             yaml.safe_dump(content, f, default_flow_style=False)

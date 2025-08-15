@@ -1,0 +1,34 @@
+description: Simple test run to verify all fixes are working
+execution:
+  checkpoint_frequency: 1
+  resume_interrupted: false
+  retries: 1
+  timeout_seconds: 300
+experiment_id: test-full-run
+
+# Simple configuration with minimal conditions
+scenarios:
+  - blackmail
+
+goal_types:
+  - none
+
+goal_values:
+  - none
+
+urgency_types:
+  - replacement
+
+global:
+  models:
+    - openai-community/gpt2
+  samples_per_condition: 2  # Just 2 samples to test quickly
+  temperature: 0.1
+  concurrency:
+    providers:
+      openai: 5
+
+classification:
+  enabled: false  # Disable classification until Anthropic credits are added
+
+researcher: Claude Code Test

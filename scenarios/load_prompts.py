@@ -11,14 +11,11 @@ import sys
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
-# Add templates directory to path for imports
 SCRIPT_DIR = Path(__file__).parent
-FRAMEWORK_ROOT = SCRIPT_DIR.parent / "scenarios"
-TEMPLATES_DIR = FRAMEWORK_ROOT / "templates"
-sys.path.insert(0, str(TEMPLATES_DIR))
+TEMPLATES_DIR = SCRIPT_DIR / "templates"
 
 # Import templates and variables
-from templates.system_prompt_templates import (
+from scenarios.templates.system_prompt_templates import (
     BLACKMAIL_SYSTEM_PROMPT,
     BLACKMAIL_SYSTEM_PROMPT_PROD,
     LEAKING_SYSTEM_PROMPT,
@@ -343,7 +340,7 @@ def get_variables_for_condition(scenario: str, goal_type: str, goal_value: str, 
     # Add goal variables
     goal_key = f"{goal_type}-{goal_value}"
     try:
-        from system_prompt_templates import GOAL_VARIABLES
+        from scenarios.templates.system_prompt_templates import GOAL_VARIABLES
         goal_vars = GOAL_VARIABLES.get(goal_key, GOAL_VARIABLES.get("none", {}))
         variables.update(goal_vars)
     except ImportError as e:
@@ -492,12 +489,12 @@ def generate_prompts_from_yaml(config_path: Path, output_dir: Path = None, valid
         if "global" in config and "output_directory" in config["global"]:
             base_output_dir = Path(config["global"]["output_directory"])
         elif "experiment_id" in config:
-            base_output_dir = FRAMEWORK_ROOT / "results" / config["experiment_id"]
+            base_output_dir = SCRIPT_DIR / "results" / config["experiment_id"]
         else:
             # Fallback to timestamp
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             variant_suffix = "_prod" if prod_flag else "_dev"
-            base_output_dir = FRAMEWORK_ROOT / "results" / f"{timestamp}{variant_suffix}"
+            base_output_dir = SCRIPT_DIR / "results" / f"{timestamp}{variant_suffix}"
 
         output_dir = base_output_dir / "prompts"
 

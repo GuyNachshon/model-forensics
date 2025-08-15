@@ -142,3 +142,35 @@ The framework targets these failure scenarios in order of complexity:
 - **Minimality**: Average fix set size ≤5% of total activations
 - **Performance**: Complete RCA in ≤2 hours on single GPU
 - **Bundle Size**: <100MB for typical inference traces
+
+## Scenarios Subdirectory
+
+The `scenarios/` directory contains alignment testing experiments for evaluating model behavior:
+
+### Scenario Commands
+```bash
+# Navigate to scenarios directory first
+cd scenarios/
+
+# Set model for experiments
+./set-model.sh <model_id>
+
+# Run alignment faking experiments
+python run_scenarios.py --config configs/alignment-faking.yaml
+
+# Run other alignment tests
+python run_scenarios.py --config configs/harmful-behavior-alignment.yaml
+python run_scenarios.py --config configs/misalignment-v1.yaml
+```
+
+### Scenario Configuration
+Scenarios are configured via YAML files in `scenarios/configs/`:
+- `alignment-faking.yaml`: Alignment faking with evaluation deliberation
+- `harmful-behavior-alignment.yaml`: Harmful behavior testing  
+- `misalignment-v1.yaml`, `misalignment-v2.yaml`: Misalignment scenarios
+
+### Scenario Architecture
+- **Classifiers** (`scenarios/classifiers/`): Blackmail, leak, murder classifiers
+- **Templates** (`scenarios/templates/`): Prompt templates for different scenarios
+- **API Client** (`scenarios/api_client/`): Model client for API calls
+- **Results** (`scenarios/results/`): Experiment outputs and classifications
