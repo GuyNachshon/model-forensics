@@ -1,3 +1,4 @@
+import glob
 import importlib
 from dataclasses import dataclass, asdict
 from typing import List, Dict, Any, Optional, Union, Set
@@ -5,6 +6,7 @@ from pathlib import Path
 from enum import Enum
 
 import requests
+import yaml
 
 
 @dataclass
@@ -135,3 +137,15 @@ def load_hf_model(model_id):
     tokenizer = _tokenizer.from_pretrained(model_id)
 
     return model, tokenizer
+
+
+def update_used_model(model_id):
+    files = glob.glob("configs/*.yaml")
+    for file in files:
+        with open(file, 'r') as f:
+            content = yaml.safe_load(f.read())
+
+        content["gloal"]["models"] = [model_id]
+
+        with open(file, 'w') as f:
+            yaml.safe_dump(content, f, default_flow_style=False)
