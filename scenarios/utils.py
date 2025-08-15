@@ -4,7 +4,7 @@ from dataclasses import dataclass, asdict
 from typing import List, Dict, Any, Optional, Union, Set
 from pathlib import Path
 from enum import Enum
-
+import transformers
 import requests
 import yaml
 
@@ -126,9 +126,6 @@ def load_hf_model(model_id):
         print(f"Warning: Model {model_id} is large ({storage_used / (1024 * 1024 * 1024):.2f} GB). Continuing automatically...")
         # Continue automatically in non-interactive mode
 
-    # Import transformers components properly
-    import transformers
-    
     model_module = transformers_info.get("auto_model", "AutoModel")
     tokenizer_module = transformers_info.get("processor", "AutoTokenizer")
     
