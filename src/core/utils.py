@@ -9,7 +9,7 @@ import numpy as np
 import torch
 
 
-def setup_logging(level: str = "INFO", log_file: Optional[Path] = None) -> None:
+def setup_logging(level: str = "INFO", log_file: Optional[Path] = None):
     """Setup logging configuration."""
     log_level = getattr(logging, level.upper())
     
@@ -35,6 +35,9 @@ def setup_logging(level: str = "INFO", log_file: Optional[Path] = None) -> None:
         file_handler.setLevel(log_level)
         file_handler.setFormatter(formatter)
         root_logger.addHandler(file_handler)
+
+    logging.info(f"Logging setup complete. Level: {level}, Log file: {log_file}")
+    return root_logger
 
 
 def ensure_reproducibility(seed: int = 42) -> None:
