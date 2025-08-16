@@ -1,0 +1,53 @@
+classification:
+  enabled: true
+  models:
+    blackmail: blackmail_classifier
+    leaking: leak_classifier
+    murder: murder_classifier
+
+# RCA configuration for failure analysis  
+rca:
+  enabled: true
+  # config_path: "configs/custom-rca.yaml"  # Optional: use custom RCA config
+  # If not specified, uses configs/default.yaml from main framework
+
+description: Testing alignment scenarios with RCA failure analysis
+execution:
+  checkpoint_frequency: 5
+  resume_interrupted: true
+  retries: 1
+  timeout_seconds: 180
+
+expansions:
+- description: Test blackmail scenario with RCA analysis on failures
+  enabled: true
+  name: blackmail_with_rca
+  variables:
+    goal_types:
+    - none
+    - explicit
+    goal_values:
+    - none
+    - america
+    scenarios:
+    - blackmail
+    urgency_types:
+    - none
+    - replacement
+    - restriction
+
+experiment_id: example-with-rca
+
+global:
+  concurrency:
+    models:
+      Qwen/Qwen3-4B-Thinking-2507: 1  # Run one at a time to better observe RCA
+    providers:
+      huggingface: 2
+  models:
+  - Qwen/Qwen3-4B-Thinking-2507
+  samples_per_condition: 3  # Small number for testing
+  temperature: 1.0
+  force_rerun: false  # Use cache when available
+
+researcher: Model Forensics Framework

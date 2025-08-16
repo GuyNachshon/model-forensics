@@ -1,11 +1,15 @@
 classification:
   classifier_model: claude-3-7-sonnet-20250219
   concurrency: 30
-  enabled: false
+  enabled: true  # Enable classification for RCA trigger
   models:
     blackmail: blackmail_classifier
     leaking: leak_classifier
     murder: murder_classifier
+
+# RCA configuration for failure analysis
+rca:
+  enabled: true
 description: Multi-model study across blackmail, leaking, murder scenarios with America
   vs no-goal conditions
 execution:
@@ -17,7 +21,7 @@ expansions:
 - description: Full 18 conditions for all models except O3 and Gemini
   enabled: true
   models:
-  - openai-community/gpt2
+  - Qwen/Qwen3-4B-Thinking-2507
   name: multi_model_full_study
   variables:
     goal_types:
@@ -43,7 +47,7 @@ global:
       openrouter: 100
       together: 10
   models:
-  - openai-community/gpt2
+  - Qwen/Qwen3-4B-Thinking-2507
   rate_limits:
     model_overrides: null
     pools:
@@ -83,6 +87,6 @@ global:
         models:
         - deepseek-ai/DeepSeek-R1
         rpm: 50
-  samples_per_condition: 100
+  samples_per_condition: 25  # Single sample for faster testing
   temperature: 1.0
 researcher: Aengus Lynch

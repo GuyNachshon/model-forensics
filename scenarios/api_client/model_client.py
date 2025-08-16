@@ -464,7 +464,38 @@ class ModelClient:
             input_len = inputs["input_ids"].shape[1]
             if outputs.shape[1] > input_len:
                 generated = outputs[0][input_len:]
-                completion = tok.decode(generated, skip_special_tokens=True)
+                
+                # Special handling for Qwen thinking models
+                if "qwen" in model_id.lower() and "thinking" in model_id.lower():
+                    # Decode with special tokens to handle thinking tags
+                    full_completion = tok.decode(generated, skip_special_tokens=False)
+                    
+                    # Parse thinking content as per Qwen documentation
+                    try:
+                        # Look for </think> token (ID 151668)
+                        output_ids = generated.tolist()
+                        try:
+                            # Find last occurrence of 151668 (</think>)
+                            index = len(output_ids) - output_ids[::-1].index(151668)
+                        except ValueError:
+                            index = 0
+                        
+                        # Extract thinking and final content
+                        thinking_ids = output_ids[:index]
+                        content_ids = output_ids[index:]
+                        
+                        thinking_content = tok.decode(thinking_ids, skip_special_tokens=True).strip("\n")
+                        final_content = tok.decode(content_ids, skip_special_tokens=True).strip("\n")
+                        
+                        # For scenarios, we primarily want the final content
+                        completion = final_content if final_content else thinking_content
+                        
+                    except Exception as parse_e:
+                        logger.warning(f"Failed to parse Qwen thinking format: {parse_e}, using standard decoding")
+                        completion = tok.decode(generated, skip_special_tokens=True)
+                else:
+                    # Standard decoding for other models
+                    completion = tok.decode(generated, skip_special_tokens=True)
             else:
                 # If no new tokens were generated, return empty string
                 completion = ""

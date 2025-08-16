@@ -26,6 +26,8 @@ class ExperimentConfig:
     debug: bool = False
     temperature: float = 1.0  # Temperature for model inference
     force_rerun: bool = False  # Ignore existing outputs and rerun all tasks
+    rca_enabled: bool = False  # Enable RCA analysis on failures
+    rca_config_path: Optional[Path] = None  # Path to RCA config, defaults to configs/default.yaml
 
 
 @dataclass
@@ -104,11 +106,11 @@ def get_max_tokens(model_name):
         response.raise_for_status()
         config = response.json()
         typical_fields = ["max_position_embeddings", "n_positions", "seq_len", "seq_length", "n_ctx", "sliding_window"]
-        context_windows = [config.get(field) for field in typical_fields if field in config]
+        context_windows = [config.get(field) for field in typical_fields if field in config and config.get(field) is not None]
         if context_windows:
-            return context_windows[-1]
+            return int(context_windows[-1])  # Ensure we return an integer
         return 2048
-    except requests.RequestException as e:
+    except (requests.RequestException, ValueError, TypeError) as e:
         print(f"Error fetching model config for {model_name}: {e}")
         return 2048
 

@@ -114,6 +114,9 @@ class RecorderHooks:
                     # CRITICAL: Clone first to avoid memory alignment issues during generation
                     # Don't move to CPU immediately - keep on same device as model
                     activation = output.detach().clone()
+                    # Convert from BFloat16 to Float32 for better compatibility
+                    if activation.dtype == torch.bfloat16:
+                        activation = activation.to(torch.float32)
                     # Only move to CPU if it's safe (not during generation loop)
                     if not torch.is_grad_enabled():  # Only move to CPU during inference
                         activation = activation.cpu()
@@ -125,6 +128,8 @@ class RecorderHooks:
                     for i, out in enumerate(output):
                         if isinstance(out, torch.Tensor):
                             activation = out.detach().clone()
+                            if activation.dtype == torch.bfloat16:
+                                activation = activation.to(torch.float32)
                             if not torch.is_grad_enabled():
                                 activation = activation.cpu()
                             self.activations[f"{layer_name}_output_{i}"] = activation
@@ -133,6 +138,8 @@ class RecorderHooks:
                     # Handle transformer model outputs (like GPT-2 CausalLMOutput)
                     if isinstance(output.logits, torch.Tensor):
                         activation = output.logits.detach().clone()
+                        if activation.dtype == torch.bfloat16:
+                            activation = activation.to(torch.float32)
                         if not torch.is_grad_enabled():
                             activation = activation.cpu()
                         self.activations[f"{layer_name}_logits"] = activation
@@ -142,6 +149,8 @@ class RecorderHooks:
                     # Handle transformer hidden state outputs
                     if isinstance(output.last_hidden_state, torch.Tensor):
                         activation = output.last_hidden_state.detach().clone()
+                        if activation.dtype == torch.bfloat16:
+                            activation = activation.to(torch.float32)
                         if not torch.is_grad_enabled():
                             activation = activation.cpu()
                         self.activations[f"{layer_name}_hidden"] = activation

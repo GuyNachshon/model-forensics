@@ -26,15 +26,15 @@ modules:
     intervention_types: ["zero", "mean", "patch"]
   
   isc:
-    enabled: false  # Disabled for MVP
-    max_interaction_order: 3
-    sampling_ratio: 0.1
-    significance_threshold: 0.05
+    enabled: true  # Enabled for full RCA pipeline
+    analysis_method: "correlation"
+    min_interaction_strength: 0.3
+    anomaly_threshold: 0.5
   
   dbc:
-    enabled: false  # Disabled for MVP
+    enabled: true  # Enabled for complete RCA pipeline
     perturbation_magnitude: 0.1
-    layer_granularity: 1
+    perturbation_steps: 20
     reversibility_threshold: 0.9
   
   provenance:
