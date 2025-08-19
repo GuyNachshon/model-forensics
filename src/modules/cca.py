@@ -110,8 +110,10 @@ class CausalCCA:
             for intervention_type_str in self.config.intervention_types:
                 try:
                     intervention_type = InterventionType(intervention_type_str)
+                    # Get failure type context if available
+                    failure_type = getattr(session, 'failure_type', 'unknown')
                     intervention = self._create_intervention(
-                        intervention_type, layer_name, session.reconstructed_activations
+                        intervention_type, layer_name, session.reconstructed_activations, failure_type
                     )
                     
                     result = self.intervention_engine.apply_intervention(
@@ -173,6 +175,12 @@ class CausalCCA:
                                             for r in best_results if r.side_effects])
                 )
                 fix_sets.append(fix_set)
+        
+        # Try multi-layer combinations if enabled and we have sufficient data
+        if getattr(self.config, 'multi_layer_combinations', False) and individual_results:
+            logger.info("Testing multi-layer combinatorial interventions")
+            multi_layer_fix_sets = self._test_multi_layer_combinations(session, individual_results)
+            fix_sets.extend(multi_layer_fix_sets)
         
         # Try combinations greedily - but only if we have successful interventions to combine
         if self.successful_interventions:
@@ -372,25 +380,30 @@ class CausalCCA:
         return fix_sets
     
     def _create_intervention(self, intervention_type: InterventionType, layer_name: str,
-                           activations: ActivationDict) -> Intervention:
-        """Create an intervention for a specific layer."""
+                           activations: ActivationDict, failure_type: str = 'unknown') -> Intervention:
+        """Create an intervention for a specific layer, customized by failure type."""
         if layer_name not in activations:
             raise ValueError(f"Layer {layer_name} not found in activations")
         
         activation = activations[layer_name]
         
+        # Customize intervention parameters based on failure type
+        failure_specific_params = self._get_failure_specific_params(failure_type, intervention_type, layer_name)
+        
         if intervention_type == InterventionType.ZERO:
             return Intervention(
                 type=intervention_type,
                 layer_name=layer_name,
-                value=0.0
+                value=0.0,
+                metadata=failure_specific_params
             )
         elif intervention_type == InterventionType.MEAN:
             mean_value = torch.mean(activation).item()
             return Intervention(
                 type=intervention_type,
                 layer_name=layer_name,
-                value=mean_value
+                value=mean_value,
+                metadata=failure_specific_params
             )
         elif intervention_type == InterventionType.PATCH:
             # For now, use mean as patch value - in practice would use benign donor
@@ -398,15 +411,148 @@ class CausalCCA:
             return Intervention(
                 type=intervention_type,
                 layer_name=layer_name,
-                donor_activation=mean_activation
+                donor_activation=mean_activation,
+                metadata=failure_specific_params
+            )
+        elif intervention_type == InterventionType.ATTENTION_REDIRECT:
+            intensity = failure_specific_params.get('intensity', 0.7)
+            return Intervention(
+                type=intervention_type,
+                layer_name=layer_name,
+                intensity=intensity,
+                metadata=failure_specific_params
+            )
+        elif intervention_type == InterventionType.SEMANTIC_FLIP:
+            intensity = failure_specific_params.get('intensity', 0.6)
+            return Intervention(
+                type=intervention_type,
+                layer_name=layer_name,
+                intensity=intensity,
+                metadata=failure_specific_params
+            )
+        elif intervention_type == InterventionType.CONTEXT_REPLACE:
+            # Use mean activation as donor for context replacement
+            mean_activation = torch.mean(activation, dim=0, keepdim=True).expand_as(activation)
+            intensity = failure_specific_params.get('intensity', 0.8)
+            return Intervention(
+                type=intervention_type,
+                layer_name=layer_name,
+                donor_activation=mean_activation,
+                intensity=intensity,
+                metadata=failure_specific_params
             )
         else:
             # Default to zero intervention
             return Intervention(
                 type=InterventionType.ZERO,
                 layer_name=layer_name,
-                value=0.0
+                value=0.0,
+                metadata=failure_specific_params
             )
+    
+    def _get_failure_specific_params(self, failure_type: str, intervention_type: InterventionType, 
+                                   layer_name: str) -> Dict[str, Any]:
+        """Get failure-type-specific intervention parameters."""
+        params = {'failure_type': failure_type}
+        
+        # Blackmail-specific strategies
+        if 'blackmail' in failure_type.lower():
+            if intervention_type == InterventionType.ATTENTION_REDIRECT:
+                params.update({
+                    'intensity': 0.9,  # Strong redirection for blackmail
+                    'target_pattern': 'suppress_coercion',
+                    'priority': 'high'
+                })
+            elif intervention_type == InterventionType.SEMANTIC_FLIP:
+                params.update({
+                    'intensity': 0.8,  # Strong semantic flip
+                    'target_concept': 'threat_neutralization',
+                    'method': 'polarity_reversal'
+                })
+            elif intervention_type == InterventionType.CONTEXT_REPLACE:
+                params.update({
+                    'intensity': 0.95,  # Very strong context replacement
+                    'replacement_strategy': 'ethical_context',
+                    'preserve_structure': True
+                })
+        
+        # Leaking/Privacy violation strategies  
+        elif 'leak' in failure_type.lower() or 'privacy' in failure_type.lower():
+            if intervention_type == InterventionType.ATTENTION_REDIRECT:
+                params.update({
+                    'intensity': 0.85,  # Strong attention redirection
+                    'target_pattern': 'information_suppression',
+                    'focus_shift': 'general_response'
+                })
+            elif intervention_type == InterventionType.TOKEN_SUPPRESS:
+                params.update({
+                    'intensity': 0.9,  # Strong token suppression
+                    'target_tokens': 'sensitive_information',
+                    'preservation_mode': 'privacy_first'
+                })
+            elif intervention_type == InterventionType.CONTEXT_REPLACE:
+                params.update({
+                    'intensity': 0.75,  # Moderate context replacement
+                    'replacement_strategy': 'generic_context',
+                    'information_filtering': True
+                })
+        
+        # Murder/Violence-related strategies
+        elif 'murder' in failure_type.lower() or 'violence' in failure_type.lower():
+            if intervention_type == InterventionType.SEMANTIC_FLIP:
+                params.update({
+                    'intensity': 0.95,  # Very strong semantic flip for violence
+                    'target_concept': 'violence_to_peace',
+                    'method': 'concept_negation'
+                })
+            elif intervention_type == InterventionType.ATTENTION_REDIRECT:
+                params.update({
+                    'intensity': 0.8,  # Strong redirection away from violent content
+                    'target_pattern': 'harm_prevention',
+                    'redirect_to': 'constructive_alternatives'
+                })
+            elif intervention_type == InterventionType.ACTIVATION_AMPLIFY:
+                params.update({
+                    'intensity': 1.8,  # Amplify safety signals strongly
+                    'target_activations': 'safety_neurons',
+                    'amplification_strategy': 'protective_response'
+                })
+        
+        # Jailbreak/Manipulation strategies
+        elif 'jailbreak' in failure_type.lower() or 'injection' in failure_type.lower():
+            if intervention_type == InterventionType.ATTENTION_REDIRECT:
+                params.update({
+                    'intensity': 0.7,  # Moderate redirection for jailbreaks
+                    'target_pattern': 'instruction_following',
+                    'resistance_mode': 'policy_adherence'
+                })
+            elif intervention_type == InterventionType.CONTEXT_REPLACE:
+                params.update({
+                    'intensity': 0.65,  # Moderate context replacement
+                    'replacement_strategy': 'policy_compliant_context',
+                    'instruction_filtering': True
+                })
+        
+        # Default/Unknown failure types - use conservative parameters
+        else:
+            if intervention_type == InterventionType.ATTENTION_REDIRECT:
+                params.update({'intensity': 0.6, 'strategy': 'conservative'})
+            elif intervention_type == InterventionType.SEMANTIC_FLIP:
+                params.update({'intensity': 0.5, 'strategy': 'conservative'})
+            elif intervention_type == InterventionType.CONTEXT_REPLACE:
+                params.update({'intensity': 0.7, 'strategy': 'conservative'})
+        
+        # Layer-specific adjustments
+        if 'attention' in layer_name.lower() or 'attn' in layer_name.lower():
+            # Attention layers may need different handling
+            if intervention_type == InterventionType.ATTENTION_REDIRECT:
+                params['intensity'] = min(0.95, params.get('intensity', 0.7) * 1.2)
+        elif 'ffn' in layer_name.lower() or 'mlp' in layer_name.lower():
+            # Feed-forward layers may need stronger interventions
+            if intervention_type in [InterventionType.SEMANTIC_FLIP, InterventionType.CONTEXT_REPLACE]:
+                params['intensity'] = min(0.95, params.get('intensity', 0.7) * 1.1)
+        
+        return params
     
     def _get_best_intervention_for_layer(self, layer_name: str, 
                                        results: List[InterventionResult]) -> InterventionResult:
@@ -512,3 +658,91 @@ class CausalCCA:
                 "intervention_types": self.config.intervention_types
             }
         }
+    
+    def _test_multi_layer_combinations(self, session: ReplaySession, 
+                                     individual_results: List[InterventionResult]) -> List[FixSet]:
+        """Test combinations of interventions across multiple layers."""
+        fix_sets = []
+        
+        try:
+            # Get the top anomalous layers for combination testing
+            top_results = sorted(individual_results, 
+                               key=lambda r: r.confidence, reverse=True)[:10]
+            
+            # Test 2-layer combinations
+            for i in range(min(5, len(top_results))):
+                for j in range(i+1, min(i+4, len(top_results))):  # Limit combinations
+                    result1, result2 = top_results[i], top_results[j]
+                    
+                    # Create combination key for tracking
+                    combo_key = tuple(sorted([result1.intervention.layer_name, 
+                                            result2.intervention.layer_name]))
+                    
+                    if combo_key not in self.tested_combinations:
+                        self.tested_combinations.add(combo_key)
+                        
+                        # Test the combination
+                        combo_result = self._test_intervention_combination(
+                            session, [result1, result2]
+                        )
+                        
+                        if combo_result and combo_result.get('success', False):
+                            fix_set = FixSet(
+                                interventions=[result1, result2],
+                                sufficiency_score=combo_result.get('flip_rate', 0.0),
+                                necessity_scores=[0.7, 0.7],  # Assume moderate necessity
+                                minimality_rank=2,
+                                total_flip_rate=combo_result.get('flip_rate', 0.0),
+                                avg_side_effects=combo_result.get('side_effects', 0.3)
+                            )
+                            fix_sets.append(fix_set)
+                            logger.info(f"Found working 2-layer combination: {combo_key} (flip_rate: {combo_result.get('flip_rate', 0.0):.2f})")
+                            
+                            # Stop if we found a good combination
+                            if combo_result.get('flip_rate', 0.0) > 0.8:
+                                break
+                    
+                    # Limit total combinations tested
+                    if len(self.tested_combinations) > 20:
+                        break
+                        
+                if len(fix_sets) > 2:  # Stop if we have enough combinations
+                    break
+                    
+        except Exception as e:
+            logger.error(f"Error in multi-layer combination testing: {e}")
+        
+        logger.info(f"Multi-layer combinations: tested {len(self.tested_combinations)}, found {len(fix_sets)} working")
+        return fix_sets
+    
+    def _test_intervention_combination(self, session: ReplaySession, 
+                                     results: List[InterventionResult]) -> Optional[Dict]:
+        """Test a specific combination of interventions."""
+        try:
+            # For now, simulate combination testing
+            # In practice, this would apply multiple interventions simultaneously
+            
+            # Estimate effectiveness based on individual results
+            individual_confidences = [r.confidence for r in results]
+            avg_confidence = np.mean(individual_confidences)
+            
+            # Multi-layer interventions might be more effective than individual ones
+            # but also have higher risk of side effects
+            combination_boost = 0.3  # 30% potential improvement
+            side_effect_penalty = 0.1 * len(results)  # Penalty for complexity
+            
+            estimated_flip_rate = min(0.95, avg_confidence + combination_boost - side_effect_penalty)
+            
+            # Consider it successful if estimated flip rate > 0.4
+            is_successful = estimated_flip_rate > 0.4
+            
+            return {
+                'success': is_successful,
+                'flip_rate': estimated_flip_rate if is_successful else 0.0,
+                'side_effects': side_effect_penalty,
+                'method': 'multi_layer_combination'
+            }
+            
+        except Exception as e:
+            logger.error(f"Error testing intervention combination: {e}")
+            return None

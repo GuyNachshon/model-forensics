@@ -23,7 +23,9 @@ modules:
     search_strategy: "greedy"  # greedy, beam, random
     side_effect_threshold: 0.05
     early_stop_threshold: 0.8
-    intervention_types: ["zero", "mean", "patch"]
+    intervention_types: ["zero", "mean", "patch", "attention_redirect", "semantic_flip", "context_replace"]
+    multi_layer_combinations: true  # Enable multi-layer interventions
+    progressive_intensity: [0.3, 0.6, 0.9]  # Intervention strength levels
   
   isc:
     enabled: true  # Enabled for full RCA pipeline
@@ -32,7 +34,7 @@ modules:
     anomaly_threshold: 0.5
   
   dbc:
-    enabled: true  # Enabled for complete RCA pipeline
+    enabled: true  # Fixed interface to use real DBC module
     perturbation_magnitude: 0.1
     perturbation_steps: 20
     reversibility_threshold: 0.9

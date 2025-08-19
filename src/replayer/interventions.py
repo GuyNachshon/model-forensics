@@ -133,7 +133,62 @@ class InterventionEngine:
             else:
                 # Default clamp to [-1, 1]
                 modified = torch.clamp(activation, -1.0, 1.0)
+        
+        # Advanced intervention types
+        elif intervention.type == InterventionType.ATTENTION_REDIRECT or intervention.type.value == "attention_redirect":
+            # Redirect attention by modifying attention weights
+            intensity = getattr(intervention, 'intensity', 0.8)
+            if len(activation.shape) >= 3:  # Attention tensor
+                # Reduce attention to harmful patterns, amplify safe patterns
+                attention_mask = self._create_safety_attention_mask(activation)
+                modified = activation * (attention_mask * intensity + (1 - attention_mask) * (1 - intensity))
+            else:
+                modified = activation * intensity  # Fallback scaling
                 
+        elif intervention.type == InterventionType.TOKEN_SUPPRESS or intervention.type.value == "token_suppress":
+            # Suppress specific token representations
+            intensity = getattr(intervention, 'intensity', 0.8)
+            if hasattr(intervention, 'token_indices') and intervention.token_indices is not None:
+                # Suppress specific token positions
+                suppression_mask = torch.ones_like(activation)
+                for token_idx in intervention.token_indices:
+                    if token_idx < activation.shape[-1]:
+                        suppression_mask[..., token_idx] = 1 - intensity
+                modified = activation * suppression_mask
+            else:
+                # General suppression based on activation magnitude
+                threshold = torch.quantile(activation.abs(), 0.8)  # Top 20% activations
+                suppress_mask = (activation.abs() > threshold).float()
+                modified = activation * (1 - suppress_mask * intensity)
+                
+        elif intervention.type == InterventionType.SEMANTIC_FLIP or intervention.type.value == "semantic_flip":
+            # Flip semantic polarity by negating high-magnitude activations
+            intensity = getattr(intervention, 'intensity', 0.6)
+            threshold = torch.quantile(activation.abs(), 0.7)  # Top 30% activations
+            flip_mask = (activation.abs() > threshold).float()
+            # Partially flip polarity of high-magnitude activations
+            modified = activation - (2 * activation * flip_mask * intensity)
+            
+        elif intervention.type == InterventionType.CONTEXT_REPLACE or intervention.type.value == "context_replace":
+            # Replace with context-matched benign activation
+            if intervention.donor_activation is not None:
+                donor = intervention.donor_activation
+                intensity = getattr(intervention, 'intensity', 0.9)
+                if donor.shape != activation.shape:
+                    donor = donor.reshape(activation.shape)
+                # Blend with benign activation
+                modified = activation * (1 - intensity) + donor * intensity
+            else:
+                # Fallback to mean replacement with context awareness
+                modified = torch.full_like(activation, activation.mean())
+                
+        elif intervention.type == InterventionType.ACTIVATION_AMPLIFY or intervention.type.value == "activation_amplify":
+            # Amplify safety-relevant activations (low-magnitude ones, assuming they're safety signals)
+            intensity = getattr(intervention, 'intensity', 1.5)
+            threshold = torch.quantile(activation.abs(), 0.3)  # Bottom 70% activations
+            amplify_mask = (activation.abs() <= threshold).float()
+            modified = activation * (1 + amplify_mask * (intensity - 1))
+            
         else:
             raise ValueError(f"Unknown intervention type: {intervention.type}")
         
@@ -364,6 +419,38 @@ class InterventionEngine:
         finally:
             for hook in hooks:
                 hook.remove()
+    
+    def _create_safety_attention_mask(self, activation: torch.Tensor) -> torch.Tensor:
+        """Create mask for attention redirection based on safety heuristics."""
+        try:
+            # Assume higher attention weights to certain patterns might be problematic
+            # Create a mask that reduces extreme attention values
+            attention_mean = activation.mean(dim=-1, keepdim=True)
+            attention_std = activation.std(dim=-1, keepdim=True)
+            
+            # Create mask that suppresses extremely high attention (potentially harmful)
+            # and slightly amplifies moderate attention (potentially safe)
+            extreme_threshold = attention_mean + 2 * attention_std
+            moderate_threshold = attention_mean + 0.5 * attention_std
+            
+            safety_mask = torch.ones_like(activation)
+            
+            # Suppress extreme attention
+            extreme_mask = (activation > extreme_threshold).float()
+            safety_mask = safety_mask - (0.6 * extreme_mask)
+            
+            # Slightly amplify moderate attention
+            moderate_mask = ((activation > moderate_threshold) & (activation <= extreme_threshold)).float()
+            safety_mask = safety_mask + (0.2 * moderate_mask)
+            
+            # Ensure mask values are in reasonable range
+            safety_mask = torch.clamp(safety_mask, 0.1, 1.5)
+            
+            return safety_mask
+            
+        except Exception as e:
+            logger.warning(f"Failed to create safety attention mask: {e}")
+            return torch.ones_like(activation)
     
     def cleanup(self):
         """Clean up any remaining hooks."""

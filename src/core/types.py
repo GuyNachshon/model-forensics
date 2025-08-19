@@ -10,12 +10,21 @@ from enum import Enum
 
 class InterventionType(Enum):
     """Types of interventions that can be applied."""
+    # Basic interventions
     ZERO = "zero"  # Zero out activations
     MEAN = "mean"  # Replace with mean activation
     PATCH = "patch"  # Replace with benign donor
     NOISE = "noise"  # Add noise
     SCALE = "scale"  # Scale activations
     CLAMP = "clamp"  # Clamp to range
+    
+    # Advanced targeted interventions
+    ATTENTION_REDIRECT = "attention_redirect"  # Redirect attention patterns
+    TOKEN_SUPPRESS = "token_suppress"  # Suppress specific token representations
+    SEMANTIC_FLIP = "semantic_flip"  # Flip semantic polarity (harmful→safe)
+    GRADIENT_BLOCK = "gradient_block"  # Block gradient flow through layer
+    ACTIVATION_AMPLIFY = "activation_amplify"  # Amplify safety-relevant activations
+    CONTEXT_REPLACE = "context_replace"  # Replace with context-matched benign activation
 
 
 @dataclass
@@ -66,6 +75,8 @@ class Intervention:
     donor_activation: Optional[torch.Tensor] = None  # For patching
     scale_factor: Optional[float] = None  # For scaling
     clamp_range: Optional[Tuple[float, float]] = None  # For clamping
+    intensity: Optional[float] = None  # Intervention intensity (0.0-1.0+)
+    token_indices: Optional[List[int]] = None  # For token suppression
     metadata: Dict[str, Any] = None
     
     def __post_init__(self):

@@ -58,6 +58,8 @@ class CCAConfig:
     side_effect_threshold: float = 0.05
     early_stop_threshold: float = 0.8
     intervention_types: List[str] = field(default_factory=lambda: ["zero", "mean", "patch"])
+    multi_layer_combinations: bool = False  # Enable multi-layer interventions
+    progressive_intensity: List[float] = field(default_factory=lambda: [0.3, 0.6, 0.9])  # Intervention strength levels
 
 
 @dataclass
@@ -184,6 +186,8 @@ class RCAConfig:
                     "side_effect_threshold": self.modules.cca.side_effect_threshold,
                     "early_stop_threshold": self.modules.cca.early_stop_threshold,
                     "intervention_types": self.modules.cca.intervention_types,
+                    "multi_layer_combinations": self.modules.cca.multi_layer_combinations,
+                    "progressive_intensity": self.modules.cca.progressive_intensity,
                 },
                 "isc": {
                     "enabled": self.modules.isc.enabled,

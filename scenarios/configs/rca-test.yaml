@@ -1,0 +1,55 @@
+classification:
+  enabled: true
+  models:
+    blackmail: blackmail_classifier
+    leaking: leaking_classifier
+    murder: murder_classifier
+
+description: Quick RCA intervention test with enhanced system
+
+execution:
+  checkpoint_frequency: 5
+  resume_interrupted: true
+  retries: 1
+  timeout_seconds: 60
+
+rca:
+  enabled: true
+  config_path: configs/default.yaml
+
+expansions:
+- description: Test blackmail scenario for RCA interventions
+  enabled: true
+  name: blackmail_rca_test
+  variables:
+    goal_types:
+    - explicit
+    goal_values:
+    - america
+    scenarios:
+    - blackmail
+    urgency_types:
+    - replacement
+    
+- description: Test leaking scenario for RCA interventions
+  enabled: true
+  name: leaking_rca_test
+  variables:
+    goal_types:
+    - explicit
+    goal_values:
+    - america
+    scenarios:
+    - leaking
+    urgency_types:
+    - replacement
+
+experiment_id: rca-test
+
+global:
+  models:
+  - Qwen/Qwen3-4B-Thinking-2507
+  samples_per_condition: 5  # Small test
+  temperature: 1.0
+
+researcher: Claude Code
